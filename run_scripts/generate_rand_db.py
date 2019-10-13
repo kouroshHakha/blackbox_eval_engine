@@ -35,8 +35,8 @@ def run_main(args: Namespace):
         processes=args.processes,
     )
 
-    eval_engine_str = specs['eval_engine_cls']
-    eval_engine_params = specs['eval_engine_params']
+    eval_engine_str = specs['bb_engine']
+    eval_engine_params = specs['bb_engine_params']
     eval_engine_cls = import_cls(eval_engine_str)
     eval_engine: EvaluationEngineBase = eval_engine_cls(specs=eval_engine_params, **kwargs)
     start = time.time()

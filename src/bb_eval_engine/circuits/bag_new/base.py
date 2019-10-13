@@ -1,12 +1,10 @@
-from typing import Optional, Dict, Any, Sequence
+from typing import Optional, Dict, Any, Sequence, Type, cast
 
-from bag_mp.manager import EvaluationManager
+from bag_mp.manager import FlowManager
 
 from ...util.design import Design
 from ...util.importlib import import_cls
 from ..base import CircuitsEngineBase, SpecSeqType
-
-import pdb
 
 
 class BagNetEngineBase(CircuitsEngineBase):
@@ -14,10 +12,10 @@ class BagNetEngineBase(CircuitsEngineBase):
     def __init__(self, yaml_fname: Optional[str] = None,
                  specs: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         CircuitsEngineBase.__init__(self, yaml_fname, specs, **kwargs)
-        _eval_cls_str = self.specs['eval_module_cls']
-        _eval_temp = self.specs['eval_module_template']
-        _eval_cls = import_cls(_eval_cls_str)
-        self.eval_module: EvaluationManager = _eval_cls(_eval_temp, **kwargs)
+        _eval_cls_str = self.specs['flow_manager_cls']
+        _eval_temp = self.specs['flow_manager_template']
+        _eval_cls = cast(Type[FlowManager], import_cls(_eval_cls_str))
+        self.flow_manager: FlowManager = _eval_cls(_eval_temp, **kwargs)
 
     def generate_rand_designs(self, n: int = 1, evaluate: bool = False, seed: Optional[int] = None,
                               **kwargs) -> Sequence[Design]:
@@ -55,7 +53,7 @@ class BagNetEngineBase(CircuitsEngineBase):
 
     def evaluate(self, designs: Sequence[Design], *args, **kwargs) -> Any:
         designs_interpreted = [self.interpret(dsn) for dsn in designs]
-        results = self.eval_module.batch_evaluate(designs_interpreted, sync=True)
+        results = self.flow_manager.batch_evaluate(designs_interpreted, sync=True)
         self.update_designs_with_results(designs, results)
         return designs
 
