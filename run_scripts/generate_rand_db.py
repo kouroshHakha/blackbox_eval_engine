@@ -7,7 +7,7 @@ from bb_eval_engine.base import EvaluationEngineBase
 import yaml
 import pickle
 import time
-
+import IPython
 
 def parse_args() -> Namespace:
     parser = argparse.ArgumentParser()
@@ -19,8 +19,12 @@ def parse_args() -> Namespace:
                         help='the seed used for generating the data base')
     parser.add_argument('-v', '--verbose', default=False, action='store_true',
                         help='True to make the underlying processes verbose')
-    parser.add_argument('-p', '--processes', default=False, action='store_true',
+    parser.add_argument('-proc', '--processes', default=False, action='store_true',
                         help='True to make multi-processes enable, default is multi-thread')
+    parser.add_argument('--num-workers', type=int, default=1,
+                        help='number of workers used for multi-process or multi-thread')
+    parser.add_argument('-p', '--pause', default=False, action='store_true',
+                        help='True to stop after running')
     args = parser.parse_args()
     return args
 
@@ -33,6 +37,7 @@ def run_main(args: Namespace):
     kwargs = dict(
         verbose=args.verbose,
         processes=args.processes,
+        num_workers=args.num_workers,
     )
 
     eval_engine_str = specs['bb_engine']
@@ -49,6 +54,9 @@ def run_main(args: Namespace):
 
     print(f'data base stored in {str(db_path)}')
     print(f'random generation of {args.number} samples took {time.time() - start:.6} seconds')
+
+    if args.pause:
+        IPython.embed()
 
 
 if __name__ == '__main__':
