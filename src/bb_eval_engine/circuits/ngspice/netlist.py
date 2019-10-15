@@ -1,4 +1,4 @@
-from typing import Union, Tuple, Sequence, Mapping, Optional, Dict
+from typing import Union, Tuple, Sequence, Mapping, Dict
 
 from multiprocessing.dummy import Pool as ThreadPool
 import os
@@ -33,16 +33,14 @@ class NgSpiceWrapper(abc.ABC):
         with open(design_netlist, 'r') as raw_file:
             self.content = raw_file.read()
 
+    def get_design_name(self, dsn_id) -> str:
+        return f'{self.base_design_name}_{dsn_id}'
 
-    def get_design_name(self, id) -> str:
-        return f'{self.base_design_name}_{id}'
+    def get_design_folder(self, dsn_id) -> Path:
+        return self.gen_dir / self.get_design_name(dsn_id)
 
-
-    def get_design_folder(self, id) -> Path:
-        return self.gen_dir / self.get_design_name(id)
-
-    def _create_design(self, state: Mapping[str, StateValue], id) -> str:
-        design_folder = self.get_design_folder(id)
+    def _create_design(self, state: Mapping[str, StateValue], dsn_id) -> str:
+        design_folder = self.get_design_folder(dsn_id)
         design_folder.mkdir(parents=True, exist_ok=True)
 
         fpath = design_folder / f'{self.base_design_name}.cir'
@@ -50,14 +48,14 @@ class NgSpiceWrapper(abc.ABC):
         temp = jinja2.Template(self.content)
         new_content = temp.render(**state)
 
-        with open(fpath, 'w') as f:
+        with open(str(fpath), 'w') as f:
             f.write(new_content)
 
         return str(fpath.resolve())
 
     @staticmethod
     def _simulate(fpath: str) -> int:
-        info = 0 # this means no error occurred
+        info = 0  # this means no error occurred
         command = f'ngspice -b {fpath} >/dev/null 2>&1'
         exit_code = os.system(command)
         if debug:
@@ -66,24 +64,22 @@ class NgSpiceWrapper(abc.ABC):
 
         if exit_code % 256:
             # raise RuntimeError('program {} failed!'.format(command))
-            info = 1 # this means an error has occurred
+            info = 1  # this means an error has occurred
         return info
-
 
     def _create_design_and_simulate(self,
                                     state: Dict[str, StateValue],
                                     verbose: bool = False) -> Tuple[Mapping[str, StateValue],
-                                                                   Mapping[str, StateValue], int]:
+                                                                    Mapping[str, StateValue], int]:
 
         if debug:
             print('state', state)
             print('verbose', verbose)
 
-        fpath = self._create_design(state, id=state['id'])
+        fpath = self._create_design(state, dsn_id=state['id'])
         info = self._simulate(fpath)
         specs = self.translate_result(state)
         return state, specs, info
-
 
     def run(self, states: Sequence[Mapping[str, StateValue]],
             verbose: bool = False) -> Sequence[Tuple[Mapping[str, StateValue],

@@ -8,7 +8,7 @@ class Design:
     def __init__(self, value: Sequence[int], attrs: Optional[Sequence[str]] = None):
 
         self._value = value
-        self._attrs: Dict[str, Any] = {'value': value}
+        self._attrs: Dict[str, Any] = {'value': value, 'value_dict': None}
         if attrs is not None:
             for k in attrs:
                 self._attrs[k] = None
@@ -18,6 +18,10 @@ class Design:
     @property
     def value(self):
         return self._value_hashable
+
+    @property
+    def value_dict(self):
+        return self._attrs['value_dict']
 
     @property
     def specs(self):

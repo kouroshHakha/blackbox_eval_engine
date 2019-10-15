@@ -28,21 +28,6 @@ class EvaluationEngineBase(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def interpret(self, design: Design) -> Dict[str, Any]:
-        """
-        implement this method to change the interpretation of each design
-        Parameters
-        ----------
-        design: Design
-            design object under consideration
-        Returns
-        -------
-        values: Dict[str, Any]
-            a dictionary representing the values of design parameters
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
     def generate_rand_designs(self, n: int = 1, evaluate: bool = False,
                               *args, **kwargs) -> Sequence[Design]:
         """
