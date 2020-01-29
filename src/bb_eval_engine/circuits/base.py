@@ -50,6 +50,7 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
 
         self.spec_range = specs['spec_range']
         self.params_vec = {}
+        self.params = self.specs['params']
         self.search_space_size = 1
         for key, value in self.specs['params'].items():
             listed_value = np.arange(value[0], value[1], value[2]).tolist()

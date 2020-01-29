@@ -16,6 +16,15 @@ class NgspiceFlowManager(FlowManager, abc.ABC):
         num_process = kwargs.get('num_workers', 1)
         self.verbose = kwargs.get('verbose', False)
 
+        try:
+            self.sim_model = Path(kwargs['sim_model'])
+        except KeyError:
+            try:
+                self.sim_model = Path(os.environ['SIM_MODEL'])
+            except KeyError:
+                raise EnvironmentError('sim_model is not defined in the env spec file and variable'
+                                       'SIM_MODEL is also not specified for running ngspice')
+
         self.ngspice_lut = {}
         for name, config in ngspice_config.items():
             cls = cast(Type[NgSpiceWrapper], import_cls(config['ngspice_cls']))
@@ -24,17 +33,14 @@ class NgspiceFlowManager(FlowManager, abc.ABC):
     def update_netlist_model_paths(self, design: Design,
                                    path_base_names: Sequence[str],
                                    name: str) -> Dict[str, str]:
-        try:
-            model_path = Path(os.environ['SIM_MODEL'])
-        except KeyError:
-            raise EnvironmentError('$SIM_MODEL is not specified for running ngspice')
+
 
         ngspice = self.ngspice_lut[name]
         dsn_id = design['id']
         updated_dict = {}
         for k in path_base_names:
             updated_dict[k] = str(ngspice.get_design_folder(dsn_id) / f'{k}.csv')
-        updated_dict['include'] = model_path.resolve()
+        updated_dict['include'] = self.sim_model.resolve()
         updated_dict['id'] = dsn_id
 
         return updated_dict

@@ -1,24 +1,17 @@
-from typing import Type
+from typing import Union
 
-import importlib
+from pathlib import Path
 
+from ..base import EvaluationEngineBase
+from utils.file import read_yaml
+from utils.importlib import import_class
 
-def import_cls(class_str: str) -> Type:
-    """Given a Python class string, convert it to the Python class.
+def import_bb_env(env_yaml_str: Union[str, Path]) -> EvaluationEngineBase:
+    specs = read_yaml(env_yaml_str)
+    env = import_class(specs['bb_engine'])(specs=specs['bb_engine_params'])
+    return env
 
-    Parameters
-    ----------
-    class_str : str
-        a Python class string/
-
-    Returns
-    -------
-    py_class : class
-        a Python class.
-    """
-    sections = class_str.split('.')
-
-    module_str = '.'.join(sections[:-1])
-    class_str = sections[-1]
-    modul = importlib.import_module(module_str)
-    return getattr(modul, class_str)
+def import_cls(class_str: str):
+    """Dummy function for compatibility reasons
+    TODO: remove this later."""
+    return import_class(class_str)
