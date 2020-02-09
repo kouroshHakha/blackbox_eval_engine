@@ -11,7 +11,7 @@ from bag_mp.client_wrapper import synchronize, FutureWrapper
 from bag_mp.file import read_file
 
 from ..base import FlowManager
-from ...util.design import Design
+from bb_eval_engine.data.design import Design
 
 
 class EvalTemplate:
@@ -31,6 +31,7 @@ class EvalTemplate:
 
 class BagFlowManager(FlowManager, abc.ABC):
     def __init__(self, temp_fname, base_name,  *args, **kwargs):
+        FlowManager.__init__(self, *args, **kwargs)
         self.template = self._get_template(temp_fname)
         self.base_name = base_name
         # the project object used for running minimum executable tasks
