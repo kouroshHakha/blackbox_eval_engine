@@ -73,18 +73,18 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             if spec_max is not None:
                 if spec_num > spec_max:
                     # if (spec_num + spec_max) != 0:
-                    #     penalty += w * abs((spec_num - spec_max) / (spec_num + spec_max))
+                    penalty += w * abs((spec_num - spec_max) / (spec_num + spec_max + 1e-15))
                     # else:
                     #     penalty += 1000
-                    penalty += w * abs(spec_num - spec_max) / abs(spec_num)
+                    # penalty += w * abs(spec_num - spec_max) / abs(spec_num)
                     # penalty += w * abs(spec_num - spec_max) / self.avg_specs[spec_kwrd]
             elif spec_min is not None:
                 if spec_num < spec_min:
                     # if (spec_num + spec_min) != 0:
-                    #     penalty += w * abs((spec_num - spec_min) / (spec_num + spec_min))
+                    penalty += w * abs((spec_num - spec_min) / (spec_num + spec_min + 1e-15))
                     # else:
                     #     penalty += 1000
-                    penalty += w * abs(spec_num - spec_min) / abs(spec_min)
+                    # penalty += w * abs(spec_num - spec_min) / abs(spec_min)
                     # penalty += w * abs(spec_num - spec_min) / self.avg_specs[spec_kwrd]
             penalties.append(penalty)
         return penalties
@@ -112,10 +112,12 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             try:
                 for k, v in result.items():
                     design[k] = v
-                design['valid'] = True
-                self.post_process_design(design)
+                # in case the flow manager already puts a valid in design specs
+                if 'valid' not in design:
+                    design['valid'] = True
             except AttributeError:
                 design['valid'] = False
+            self.post_process_design(design)
 
     # noinspection PyMethodMayBeStatic
     def post_process_design(self, design: Design) -> None:
@@ -132,7 +134,11 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
         None
             This function should manipulate design object in-place.
         """
-        cost = 0
-        for spec_kwrd in self.spec_range:
-            cost += self.compute_penalty(design[spec_kwrd], spec_kwrd)[0]
+        if design['valid']:
+            cost = 0
+            for spec_kwrd in self.spec_range:
+                cost += self.compute_penalty(design[spec_kwrd], spec_kwrd)[0]
+        else:
+            # if not valid penalize with a huge cost
+            cost = 1000
         design['cost'] = cost

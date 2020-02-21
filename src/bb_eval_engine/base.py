@@ -5,6 +5,8 @@ import yaml
 import random
 import numpy as np
 import itertools
+import time
+
 
 from .data.design import Design
 from .util.encoder import IntIDEncoder
@@ -70,11 +72,13 @@ class EvaluationEngineBase(abc.ABC):
         if seed:
             self.set_seed(seed)
 
-        tried_designs, valid_designs = [], []
+        valid_designs = []
+        tried_designs = set()
         remaining = n
         while remaining != 0:
-            trying_designs = []
+            trying_designs = set()
             useless_iter_count = 0
+            s = time.time()
             while len(trying_designs) < remaining:
                 rand_design = self.get_rand_sample()
                 if rand_design in tried_designs or rand_design in trying_designs:
@@ -82,13 +86,13 @@ class EvaluationEngineBase(abc.ABC):
                     if useless_iter_count > n * 10:
                         raise ValueError(f'large amount randomly selected samples failed {n}')
                     continue
-                trying_designs.append(rand_design)
-
+                trying_designs.add(rand_design)
+            print(f'Finished generating designs in {time.time() - s} seconds.')
             if evaluate:
-                self.evaluate(trying_designs)
+                self.evaluate(list(trying_designs))
                 n_valid = 0
                 for design in trying_designs:
-                    tried_designs.append(design)
+                    tried_designs.add(design)
                     if design['valid']:
                         n_valid += 1
                         valid_designs.append(design)
