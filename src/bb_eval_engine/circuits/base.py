@@ -1,14 +1,11 @@
 from typing import Optional, Dict, Any, Union, Sequence
 
 import abc
-import numpy as np
 import random
 
 from ..base import EvaluationEngineBase
-from ..util.design import Design
+from bb_eval_engine.data.design import Design
 from ..util.importlib import import_cls
-
-from .util.id import IDEncoder
 
 
 SpecType = Union[float, int]
@@ -17,25 +14,8 @@ SpecSeqType = Union[Sequence[SpecType], SpecType]
 
 class FlowManager(abc.ABC):
 
-    @abc.abstractmethod
-    def interpret(self, design: Design, *args, **kwargs) -> Dict[str, Any]:
-        """
-        Implement this method for the interpretation of each design parameter.
-        This method can be used in batch_evaluate.
-        Parameters
-        ----------
-        design: Design
-            design object under consideration
-        *args:
-            optional positional arguments
-        **kwargs:
-            optional keyword arguments
-        Returns
-        -------
-        values: Dict[str, Any]
-            a dictionary representing the values of design parameters
-        """
-        raise NotImplementedError
+    def __init__(self, *args, **kwargs) -> None:
+        pass
 
     @abc.abstractmethod
     def batch_evaluate(self, batch_of_designs: Sequence[Design], *args, **kwargs) -> Sequence[Any]:
@@ -48,27 +28,12 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
                  specs: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         EvaluationEngineBase.__init__(self, yaml_fname, specs, **kwargs)
 
-        self.spec_range = specs['spec_range']
-        self.params_vec = {}
-        self.search_space_size = 1
-        for key, value in self.specs['params'].items():
-            listed_value = np.arange(value[0], value[1], value[2]).tolist()
-            self.params_vec[key] = listed_value
-            self.search_space_size = self.search_space_size * len(list(listed_value))
-
-        self.id_encoder = IDEncoder(self.params_vec)
-
         # flow manager takes in a parameter dictionary and has functions to run simulation
         # does not take care of parameter interface with simulator
         _eval_cls_str = self.specs['flow_manager_cls']
         _eval_params = self.specs['flow_manager_params']
         _eval_cls = import_cls(_eval_cls_str)
         self.flow_manager: FlowManager = _eval_cls(**_eval_params, **kwargs)
-
-    @staticmethod
-    def set_seed(seed):
-        random.seed(seed)
-        np.random.seed(seed)
 
     def get_rand_sample(self):
         """
@@ -78,86 +43,28 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
         for key, vec in self.params_vec.items():
             rand_idx = random.randrange(len(list(vec)))
             design_list.append(rand_idx)
-        attrs = self.spec_range.keys()
-        design = Design(design_list, attrs)
-        design['id'] = design.id(self.id_encoder)
-        # update design value_dict
-        self._interpret_design(design)
+        design = Design(design_list, key_specs=self.spec_range.keys())
+
         return design
 
-    # noinspection PyUnresolvedReferences
-    def _interpret_design(self, design: Design) -> None:
-        """This function takes in a design object, finds what values mean and put them the
-        value_dict attribure of the design"""
-        param_values = {}
-        for param_idx, key in zip(design['value'], self.params_vec.keys()):
-            param_values[key] = self.params_vec[key][param_idx]
-        design['value_dict'] = param_values
-
-    def generate_rand_designs(self, n: int = 1, evaluate: bool = False, seed: Optional[int] = None,
-                              **kwargs) -> Sequence[Design]:
-        if seed:
-            self.set_seed(seed)
-        tried_designs, valid_designs = [], []
-        remaining = n
-        while remaining != 0:
-            trying_designs = []
-            useless_iter_count = 0
-            while len(trying_designs) < remaining:
-                rand_design = self.get_rand_sample()
-                if rand_design in tried_designs or rand_design in trying_designs:
-                    useless_iter_count += 1
-                    if useless_iter_count > n * 10:
-                        raise ValueError(f'large amount randomly selected samples failed {n}')
-                    continue
-                trying_designs.append(rand_design)
-
-            if evaluate:
-                self.evaluate(trying_designs)
-                n_valid = 0
-                for design in trying_designs:
-                    tried_designs.append(design)
-                    if design['valid']:
-                        n_valid += 1
-                        valid_designs.append(design)
-                remaining = remaining - n_valid
-            else:
-                remaining = remaining - len(trying_designs)
-
-        efficiency = len(valid_designs) / len(tried_designs)
-        print(f'Efficiency: {efficiency}')
-        return valid_designs
-
-    def evaluate(self, designs: Sequence[Design], *args, **kwargs) -> Any:
+    def _get_evaluated_designs(self, designs: Sequence[Design], *args,
+                               **kwargs) -> Sequence[Design]:
+        """Side effect: design objects will have more attributes"""
         results = self.flow_manager.batch_evaluate(designs, sync=True)
         self.update_designs_with_results(designs, results)
         return designs
 
-    def compute_penalty(self, spec_nums: SpecSeqType, spec_kwrd: str) -> SpecSeqType:
-        """
-        implement this method to compute the penalty(s) of a given spec key word based on the
-        what the provided numbers for that specification.
-        Parameters
-        ----------
-        spec_nums: SpecSeqType
-            Either a single number or a sequence of numbers for a given specification.
-        spec_kwrd: str
-            The keyword of the specification of interest.
+    def compute_penalty(self, vals: SpecSeqType, key: str, *args, **kwargs) -> SpecSeqType:
 
-        Returns
-        -------
-            Either a single number or a sequence of numbers representing the penalty number for
-            that specification
-        """
-        if not hasattr(spec_nums, '__iter__'):
-            list_spec_nums = [spec_nums]
-        else:
-            list_spec_nums = spec_nums
+        try:
+            spec_num_iter = iter(vals)
+        except TypeError:
+            spec_num_iter = iter([vals])
 
         penalties = []
-        for spec_num in list_spec_nums:
+        for spec_num in spec_num_iter:
+            ret = self.spec_range[key]
             penalty = 0
-            ret = self.spec_range[spec_kwrd]
             if len(ret) == 3:
                 spec_min, spec_max, w = ret
             else:
@@ -166,18 +73,18 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             if spec_max is not None:
                 if spec_num > spec_max:
                     # if (spec_num + spec_max) != 0:
-                    #     penalty += w*abs((spec_num - spec_max) / (spec_num + spec_max))
+                    penalty += w * abs((spec_num - spec_max) / (spec_num + spec_max + 1e-15))
                     # else:
                     #     penalty += 1000
-                    penalty += w * abs(spec_num - spec_max) / abs(spec_num)
+                    # penalty += w * abs(spec_num - spec_max) / abs(spec_num)
                     # penalty += w * abs(spec_num - spec_max) / self.avg_specs[spec_kwrd]
-            if spec_min is not None:
+            elif spec_min is not None:
                 if spec_num < spec_min:
                     # if (spec_num + spec_min) != 0:
-                    #     penalty += w*abs((spec_num - spec_min) / (spec_num + spec_min))
+                    penalty += w * abs((spec_num - spec_min) / (spec_num + spec_min + 1e-15))
                     # else:
                     #     penalty += 1000
-                    penalty += w * abs(spec_num - spec_min) / abs(spec_min)
+                    # penalty += w * abs(spec_num - spec_min) / abs(spec_min)
                     # penalty += w * abs(spec_num - spec_min) / self.avg_specs[spec_kwrd]
             penalties.append(penalty)
         return penalties
@@ -205,10 +112,12 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             try:
                 for k, v in result.items():
                     design[k] = v
-                design['valid'] = True
-                self.post_process_design(design)
+                # in case the flow manager already puts a valid in design specs
+                if 'valid' not in design:
+                    design['valid'] = True
             except AttributeError:
                 design['valid'] = False
+            self.post_process_design(design)
 
     # noinspection PyMethodMayBeStatic
     def post_process_design(self, design: Design) -> None:
@@ -225,7 +134,11 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
         None
             This function should manipulate design object in-place.
         """
-        cost = 0
-        for spec_kwrd in self.spec_range:
-            cost += self.compute_penalty(design[spec_kwrd], spec_kwrd)[0]
+        if design['valid']:
+            cost = 0
+            for spec_kwrd in self.spec_range:
+                cost += self.compute_penalty(design[spec_kwrd], spec_kwrd)[0]
+        else:
+            # if not valid penalize with a huge cost
+            cost = 1000
         design['cost'] = cost

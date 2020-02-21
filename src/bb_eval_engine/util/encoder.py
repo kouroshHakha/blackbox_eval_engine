@@ -1,17 +1,26 @@
+from typing import Dict, Sequence
+
 import numpy as np
 import sys
 
 
-class IDEncoder:
-    # example: input = [1,2,3], bases = [10, 3, 8]
-    # [10, 3, 8] -> [3x8, 8, 0]
-    # [1, 2, 3] x [3x8, 8, 0] = [24, 16 , 0] -> 24+16+0 = 40
-    # 40 -> [k] in base 62 (0,...,9,a,...,z,A,....,Z) and then we pad it to [0,k] and then return
-    # '0k'
+class IntIDEncoder:
+    """
+    This Encoder takes a list of integers and converts them to a shorter representation "id".
+    It requires the number of possible values to be given for each dimension, through params_vec.
 
-    def __init__(self, params_vec):
+    Example
+    -------
+    input = [1,2,3], bases = [10, 3, 8]
+    [10, 3, 8] -> [3x8, 8, 0]
+    [1, 2, 3] x [3x8, 8, 0] = [24, 16 , 0] -> 24+16+0 = 40
+    40 -> [k] in base 62 (number of possible characters, i.e. 0,...,9,a,...,z,A,....,Z)
+    and then we pad it to [0,k] and then return '0k'
+    """
+
+    def __init__(self, params_vec: Dict[str, Sequence]):
         self._bases = np.array([len(vec) for vec in params_vec.values()])
-        self._mulipliers = self._compute_multipliers()
+        self._multipliers = self._compute_multipliers()
         self._lookup_dict = self._create_lookup()
         self.length_letters = self._compute_length_letter()
 
@@ -55,7 +64,8 @@ class IDEncoder:
 
     def _convert_2_base_10(self, input_vec):
         assert len(input_vec) == len(self._bases)
-        return np.sum(np.array(input_vec) * self._mulipliers)
+        input_np = np.array(input_vec)
+        return np.sum(input_np * self._multipliers) + input_np[-1]
 
     def _convert_2_base_letters(self, input_base_10):
         x = input_base_10
