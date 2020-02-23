@@ -6,7 +6,7 @@ import random
 import numpy as np
 import itertools
 import time
-
+from dataclasses import dataclass, field
 
 from .data.design import Design
 from .util.encoder import IntIDEncoder
@@ -14,6 +14,31 @@ from .util.encoder import IntIDEncoder
 
 SpecType = Union[float, int]
 SpecSeqType = Union[Sequence[SpecType], SpecType]
+
+@dataclass(frozen=True)
+class Spec:
+    name: str
+    ub: float = None
+    lb: float = None
+    weight: float = 1
+
+@dataclass
+class DesignVar:
+    name: str
+    min: float
+    max: float
+    step: float
+    vec: np.ndarray = field(init=False, repr=False)
+    index_vec: np.ndarray = field(init=False, repr=False)
+    min_index: int = 0
+    max_index: int = field(init=False, repr=False)
+    num: int = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.vec = np.arange(self.min , self.max, self.step)
+        self.index_vec = np.arange(len(self.vec))
+        self.max_index = self.index_vec[-1]
+        self.num = self.max_index + 1
 
 
 class EvaluationEngineBase(abc.ABC):
@@ -25,25 +50,33 @@ class EvaluationEngineBase(abc.ABC):
                 specs = yaml.load(f, Loader=yaml.FullLoader)
 
         self.specs = specs
-        self.spec_range = specs['spec_range']
+        self.spec_range = {}
+        for key, val in specs['spec_range'].items():
+            self.spec_range[key] = Spec(key, *val)
 
-        self.params_vec: Dict[str, np.ndarray] = cast(Dict[str, np.ndarray], {})
+        self.design_vars = {}
+        self.params_vec = cast(Dict[str, np.ndarray], {})
         self.params = self.specs['params']
-        self.params_min = [0]*len(self.params_vec)
-        self.params_max = []
-        for val in self.params_vec.values():
-            self.params_max.append(len(val)-1)
         self.search_space_size = 1
         for key, value in self.specs['params'].items():
             listed_value = np.arange(value[0], value[1], value[2])
             self.params_vec[key] = listed_value
             self.search_space_size = self.search_space_size * len(listed_value)
+            self.design_vars[key] = DesignVar(key, *value)
 
+        self.params_min = [0]*len(self.params_vec)
+        self.params_max = []
+        for val in self.params_vec.values():
+            self.params_max.append(len(val)-1)
         self.id_encoder = IntIDEncoder(self.params_vec)
 
     @staticmethod
     def set_seed(seed):
         random.seed(seed)
+
+    @property
+    def ndim(self):
+        return len(self.params_vec)
 
     def design_iter(self):
         dns_values_list = [range(len(v)) for v in self.params_vec.values()]

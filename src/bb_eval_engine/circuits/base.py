@@ -63,13 +63,9 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
 
         penalties = []
         for spec_num in spec_num_iter:
-            ret = self.spec_range[key]
+            spec = self.spec_range[key]
             penalty = 0
-            if len(ret) == 3:
-                spec_min, spec_max, w = ret
-            else:
-                spec_min, spec_max = ret
-                w = 1
+            spec_max, spec_min, w = spec.ub, spec.lb, spec.weight
             if spec_max is not None:
                 if spec_num > spec_max:
                     # if (spec_num + spec_max) != 0:
