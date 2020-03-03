@@ -138,3 +138,6 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             # if not valid penalize with a huge cost
             cost = 1000
         design['cost'] = cost
+
+    def plot_contours(self, ranges, ax=None, fpath='', show_fig=False):
+        return self.flow_manager.plot_contours(ranges, ax, fpath, show_fig)
