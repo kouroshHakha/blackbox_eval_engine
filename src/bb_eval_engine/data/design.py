@@ -115,7 +115,12 @@ class Design:
     def __eq__(self, other):
         if self.value is None or other.value is None:
             raise ValueError('attribute value hashable is not set')
-        return hash(self) == hash(other)
+        if isinstance(other, Design):
+            return self.value == other.value
+        elif isinstance(other, list):
+            return self.value == other
+        else:
+            raise ValueError(f'Cannot compare type Design with other type {type(other)}')
 
     def __lt__(self, other: Design):
         return self._value.__lt__(other._value)
