@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from .data.design import Design
 from .util.encoder import IntIDEncoder
+from .sampler import RandomSampler
 
 
 SpecType = Union[float, int]
@@ -18,9 +19,17 @@ SpecSeqType = Union[Sequence[SpecType], SpecType]
 @dataclass(frozen=True)
 class Spec:
     name: str
-    ub: float = None
     lb: float = None
+    ub: float = None
     weight: float = 1
+
+    def meet(self, val):
+        ans = True
+        if self.ub:
+            ans = ans and (val < self.ub)
+        if self.lb:
+            ans = ans and (val > self.lb)
+        return ans
 
 @dataclass
 class DesignVar:
@@ -70,6 +79,15 @@ class EvaluationEngineBase(abc.ABC):
             self.params_max.append(len(val)-1)
         self.id_encoder = IntIDEncoder(self.params_vec)
 
+        self.input_bounds = ([x.min for x in self.design_vars.values()],
+                             [x.max for x in self.design_vars.values()])
+
+    def meets_specs(self, design: Design, objective_kw=''):
+        for spec_key, spec in self.spec_range.items():
+            if not spec.meet(design[spec_key]) and spec_key != objective_kw:
+                return False
+        return True
+
     @staticmethod
     def set_seed(seed):
         random.seed(seed)
@@ -84,7 +102,7 @@ class EvaluationEngineBase(abc.ABC):
             yield Design(dsn, key_specs=self.spec_range.keys())
 
     def generate_rand_designs(self, n: int = 1, evaluate: bool = False,
-                              seed: Optional[int] = None) -> Sequence[Design]:
+                              seed: Optional[int] = None, sampler: str='uniform') -> Sequence[Design]:
         """
         Generates a random sequence of Design samples.
 
@@ -96,46 +114,65 @@ class EvaluationEngineBase(abc.ABC):
             True to evaluate the value of each design and populate its attributes.
         seed: Optional[int]
             Initial seed for random number generator.
+        sampler: str [`uniform`, `lhs`]
+            Determines the type of sampler used
 
         Returns
         -------
         database: Sequence[Design]
             a sequence of design objects
         """
+
         if seed:
             self.set_seed(seed)
+        # Changes: assume that invalid designs are just penalized with a very large cost value
 
-        valid_designs = []
-        tried_designs = set()
-        remaining = n
-        while remaining != 0:
-            trying_designs = set()
-            useless_iter_count = 0
-            s = time.time()
-            while len(trying_designs) < remaining:
-                rand_design = self.get_rand_sample()
-                if rand_design in tried_designs or rand_design in trying_designs:
-                    useless_iter_count += 1
-                    if useless_iter_count > n * 10:
-                        raise ValueError(f'large amount randomly selected samples failed {n}')
-                    continue
-                trying_designs.add(rand_design)
-            print(f'Finished generating designs in {time.time() - s} seconds.')
-            if evaluate:
-                self.evaluate(list(trying_designs))
-                n_valid = 0
-                for design in trying_designs:
-                    tried_designs.add(design)
-                    if design['valid']:
-                        n_valid += 1
-                        valid_designs.append(design)
-                remaining = remaining - n_valid
-            else:
-                remaining = remaining - len(trying_designs)
+        if sampler == 'uniform':
+            get_samples = RandomSampler.get_uniform_samples
+        elif sampler == 'lhs':
+            get_samples = RandomSampler.get_lh_sample
+        else:
+            raise ValueError(f'sampler {sampler} is not valid.')
 
-        efficiency = len(valid_designs) / len(tried_designs)
-        print(f'Efficiency: {efficiency}')
-        return valid_designs
+        raw_samples = get_samples(np.array(self.params_min), np.array(self.params_max), n)
+        dsns = [Design(sample.astype('int')) for sample in raw_samples]
+        if not evaluate:
+            return dsns
+        return self.evaluate(dsns)
+
+        # valid_designs = []
+        # tried_designs = set()
+        # remaining = n
+        # while remaining != 0:
+        #     trying_designs = set()
+        #     useless_iter_count = 0
+        #     s = time.time()
+        #     while len(trying_designs) < remaining:
+        #         rand_design = self.get_rand_sample()
+        #         if rand_design in tried_designs or rand_design in trying_designs:
+        #             useless_iter_count += 1
+        #             if useless_iter_count > n * 10:
+        #                 raise ValueError(f'large amount randomly selected samples failed {n}')
+        #             continue
+        #         trying_designs.add(rand_design)
+        #     print(f'Finished generating designs in {time.time() - s} seconds.')
+        #     if evaluate:
+        #         self.evaluate(list(trying_designs))
+        #         n_valid = 0
+        #         for design in trying_designs:
+        #             tried_designs.add(design)
+        #             if design['valid']:
+        #                 n_valid += 1
+        #                 valid_designs.append(design)
+        #         remaining = remaining - n_valid
+        #     else:
+        #         tried_designs.update(trying_designs)
+        #         valid_designs += list(trying_designs)
+        #         remaining = remaining - len(valid_designs)
+        #
+        # efficiency = len(valid_designs) / len(tried_designs)
+        # print(f'Efficiency: {efficiency}')
+        # return valid_designs
 
     def find_worst(self, vals: SpecSeqType, key: str, *args, ret_penalty: bool = True, **kwargs):
         """

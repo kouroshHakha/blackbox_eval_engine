@@ -10,6 +10,7 @@ from pathlib import Path
 import jinja2
 import atexit
 import h5py
+from numbers import Number
 
 from utils.file import read_yaml, write_yaml
 
@@ -19,9 +20,9 @@ StateValue = Union[float, int, str]
 debug = False
 
 
-@dataclass
+@dataclass(eq=True)
 class Netlist:
-    fpath: str
+    fpath: Path
     content: str
 
     def __hash__(self):
@@ -54,15 +55,38 @@ class NgSpiceWrapper(abc.ABC):
 
         # get/create cache file
         self.cache_path = self.gen_dir / 'cache.yaml'
+        self.cache: Dict[str, Tuple[int, str]]
         if self.cache_path.exists():
             self.cache = read_yaml(self.cache_path)
+            stat = os.stat(str(self.cache_path))
+            self.last_cache_mtime = stat[-1]
         else:
             self.cache = {}
+            self.last_cache_mtime = 0
+        # atexit takes care of saving the current cache content in case of an error
         atexit.register(self._write_cache)
 
     def _write_cache(self):
         print(f'Saving cache for {self.base_design_name} ....')
-        write_yaml(self.cache_path, self.cache)
+        # read the yaml if cache file already exists and has been modified since last time visited
+        if self.cache_path.exists():
+            stat = os.stat(str(self.cache_path))
+            if self.last_cache_mtime < stat[-1]:
+                current_cache = read_yaml(self.cache_path)
+            else:
+                current_cache = {}
+        else:
+            current_cache = {}
+        current_cache.update(self.cache)
+        write_yaml(self.cache_path, current_cache)
+        # update last mtime stamp after updating cache file
+        self.last_cache_mtime = os.stat(str(self.cache_path))[-1]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._write_cache()
 
     def get_design_name(self, dsn_id) -> str:
         return f'{self.base_design_name}_{dsn_id}'
@@ -71,18 +95,20 @@ class NgSpiceWrapper(abc.ABC):
         return self.gen_dir / self.get_design_name(dsn_id)
 
     @classmethod
-    def _save_as_hdf5_rec(cls, obj: Dict[str, Union[Dict, np.ndarray]], root: h5py.File):
+    def _save_as_hdf5_rec(cls, obj: Mapping[str, Union[Mapping, np.ndarray]], root: h5py.File):
         for k, v in obj.items():
             if isinstance(v, np.ndarray):
                 root.create_dataset(name=k, data=v)
             elif isinstance(v, dict):
                 grp = root.create_group(name=k)
                 cls._save_as_hdf5_rec(v, grp)
+            elif isinstance(v, Number):
+                root.create_dataset(name=k, data=v)
             else:
-                raise ValueError(f'Does not support type {type(obj)}')
+                raise ValueError(f'Does not support type {type(v)}')
 
     @classmethod
-    def save_as_hdf5(cls, data_dict: Dict[str, Any], fpath: PathLike) -> None:
+    def save_as_hdf5(cls, data_dict: Mapping[str, Any], fpath: PathLike) -> None:
         with h5py.File(fpath, 'w') as root:
             cls._save_as_hdf5_rec(data_dict, root)
 
@@ -103,6 +129,15 @@ class NgSpiceWrapper(abc.ABC):
     def load_hdf5(cls, fpath: PathLike) -> Dict[str, Any]:
         with h5py.File(fpath, 'r') as f:
             return cls._load_hdf5_rec(f)
+
+    @classmethod
+    def create_new_name(cls, dsn_folder: PathLike) -> Path:
+        counter = 1
+        new_name = dsn_folder / 'sim.hdf5'
+        while new_name.exists():
+            new_name = dsn_folder / f'sim_{counter}.hdf5'
+            counter += 1
+        return new_name
 
     def _create_design(self, state: Mapping[str, StateValue], dsn_id: str) -> Netlist:
         """
@@ -130,7 +165,7 @@ class NgSpiceWrapper(abc.ABC):
             with open(str(fpath), 'w') as f:
                 f.write(new_content)
 
-        return Netlist(fpath=str(fpath.resolve()), content=new_content)
+        return Netlist(fpath=fpath.resolve(), content=new_content)
 
     @staticmethod
     def _simulate(netlist: Netlist) -> int:
@@ -145,8 +180,8 @@ class NgSpiceWrapper(abc.ABC):
             info = 1  # this means an error has occurred
         return info
 
-    def _update_cache(self, netlist: Netlist):
-        self.cache[hash(netlist)] = datetime.utcnow()
+    def _update_cache(self, netlist: Netlist, hdf5_file: PathLike):
+        self.cache[netlist] = (datetime.utcnow(), str(hdf5_file))
 
     def _create_design_and_simulate(self,
                                     state: Dict[str, StateValue],
@@ -159,14 +194,18 @@ class NgSpiceWrapper(abc.ABC):
 
         netlist = self._create_design(state, dsn_id=state['id'])
         loaded = False
-        if hash(netlist) not in self.cache:
+        if netlist not in self.cache:
             print(f'Simulating design {state["id"]} ...')
             info = self._simulate(netlist)
             if not info:
                 # simulation succeeded
-                self._update_cache(netlist)
+                results = self.parse_output(state)
+                dsn_folder = self.get_design_folder(state['id'])
+                hdf5_file: Path = self.create_new_name(dsn_folder)
+                self.save_as_hdf5(results, hdf5_file)
+                self._update_cache(netlist, hdf5_file)
         else:
-            print(f'Skipped simulation. Loaded results from {netlist.fpath}.')
+            print(f'Skipped simulation. Loaded results from {netlist.fpath.parent}.')
             info = 0
             loaded = True
 
@@ -174,11 +213,13 @@ class NgSpiceWrapper(abc.ABC):
             raise ValueError(f'Ngspice simulation failed. Check log: {str(netlist.fpath)}.')
         else:
             try:
-                specs = self.translate_result(state)
-            except FileNotFoundError as e:
+                hdf5_path = self.cache[netlist][1]
+                results = self.load_hdf5(hdf5_path)
+                specs = self.translate_result(state, results)
+            except OSError as e:
                 if loaded:
                     print('Loaded results had some issues. Redoing the simulation ...')
-                    del self.cache[hash(netlist)]
+                    del self.cache[netlist]
                     return self._create_design_and_simulate(state, verbose)
                 else:
                     raise e
@@ -198,12 +239,17 @@ class NgSpiceWrapper(abc.ABC):
 
         return specs
 
+    @classmethod
     @abc.abstractmethod
-    def translate_result(self, state: Mapping[str, StateValue]) -> Mapping[str, StateValue]:
+    def parse_output(cls, state: Mapping[str, StateValue]) -> Mapping[str, np.ndarray]:
         """
-        This method needs to be overwritten according to circuit needs,
-        parsing output, playing with the results to get a cost function, etc.
+        This method needs to be overwritten according to circuit needs, parsing output.
         The designer should look at his/her netlist and accordingly write this function.
         state should include keywords which refer to output path
         """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def translate_result(self, state: Mapping[str, StateValue],
+                         results: Mapping[str, np.ndarray]) -> Mapping[str, Any]:
         raise NotImplemented
