@@ -11,6 +11,7 @@ import jinja2
 import atexit
 import h5py
 from numbers import Number
+import subprocess
 
 from utils.file import read_yaml, write_yaml
 
@@ -56,6 +57,7 @@ class NgSpiceWrapper(abc.ABC):
         # get/create cache file
         self.cache_path = self.gen_dir / 'cache.yaml'
         self.cache: Dict[str, Tuple[int, str]]
+        self.updated_cache = False
         if self.cache_path.exists():
             self.cache = read_yaml(self.cache_path)
             stat = os.stat(str(self.cache_path))
@@ -67,20 +69,22 @@ class NgSpiceWrapper(abc.ABC):
         atexit.register(self._write_cache)
 
     def _write_cache(self):
-        print(f'Saving cache for {self.base_design_name} ....')
-        # read the yaml if cache file already exists and has been modified since last time visited
-        if self.cache_path.exists():
-            stat = os.stat(str(self.cache_path))
-            if self.last_cache_mtime < stat[-1]:
-                current_cache = read_yaml(self.cache_path)
+        if self.updated_cache:
+            # read the yaml if cache file already exists and has been modified since last time visited
+            if self.cache_path.exists():
+                stat = os.stat(str(self.cache_path))
+                if self.last_cache_mtime < stat[-1]:
+                    current_cache = read_yaml(self.cache_path)
+                else:
+                    current_cache = {}
             else:
                 current_cache = {}
-        else:
-            current_cache = {}
-        current_cache.update(self.cache)
-        write_yaml(self.cache_path, current_cache)
-        # update last mtime stamp after updating cache file
-        self.last_cache_mtime = os.stat(str(self.cache_path))[-1]
+            current_cache.update(self.cache)
+            print(f'Saving cache for {self.base_design_name} ....')
+            write_yaml(self.cache_path, current_cache)
+            # update last mtime stamp after updating cache file
+            self.last_cache_mtime = os.stat(str(self.cache_path))[-1]
+            self.updated_cache = False
 
     def __enter__(self):
         return self
@@ -170,18 +174,20 @@ class NgSpiceWrapper(abc.ABC):
     @staticmethod
     def _simulate(netlist: Netlist) -> int:
         info = 0  # this means no error occurred
-        command = f'ngspice -b {netlist.fpath} >/dev/null 2>&1'
-        exit_code = os.system(command)
+        command = ['ngspice', '-b', f'{netlist.fpath}']
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        if 'Error' in result.stdout.decode('utf-8') + result.stderr.decode('utf-8'):
+            info = 1
+
         if debug:
             print(command)
             print(netlist.fpath)
-
-        if exit_code % 256:
-            info = 1  # this means an error has occurred
         return info
 
     def _update_cache(self, netlist: Netlist, hdf5_file: PathLike):
         self.cache[netlist] = (datetime.utcnow(), str(hdf5_file))
+        self.updated_cache = True
 
     def _create_design_and_simulate(self,
                                     state: Dict[str, StateValue],
@@ -198,7 +204,7 @@ class NgSpiceWrapper(abc.ABC):
             print(f'Simulating design {state["id"]} ...')
             info = self._simulate(netlist)
             if not info:
-                # simulation succeeded
+                # simulation succeeded and not it cache
                 results = self.parse_output(state)
                 dsn_folder = self.get_design_folder(state['id'])
                 hdf5_file: Path = self.create_new_name(dsn_folder)
