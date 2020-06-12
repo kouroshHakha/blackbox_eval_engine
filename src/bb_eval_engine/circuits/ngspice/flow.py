@@ -17,6 +17,8 @@ class NgspiceFlowManager(FlowManager, abc.ABC):
         FlowManager.__init__(self, **kwargs)
         num_process = kwargs.get('num_workers', 1)
         self.verbose = kwargs.get('verbose', False)
+        # in debug mode experiments run in series
+        self.debug = kwargs.get('debug', False)
 
         try:
             self.sim_model = Path(kwargs['sim_model'])

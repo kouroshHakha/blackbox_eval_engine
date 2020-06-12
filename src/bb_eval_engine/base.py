@@ -214,10 +214,17 @@ class EvaluationEngineBase(abc.ABC):
 
     def evaluate(self, designs: Sequence[Design], *args, **kwargs) -> Sequence[Design]:
         """Evaluates (runs simulations) a sequence of design objects, while resetting the state of
-        designs."""
+        designs.
+        kwargs:
+            do_interpret: True to run self._interpret_design wich modifies the design objects,
+            by making it false it will be assumed that design objects are ready for
+            get_evaluated_designs.
+        """
         for dsn in designs:
-            # update design key params
-            self._interpret_design(dsn)
+            do_interpret = kwargs.get('do_interpret', True)
+            if do_interpret:
+                # update design key params
+                self._interpret_design(dsn)
             dsn['id'] = dsn.id(self.id_encoder)
             dsn.clear_specs()
         return self._get_evaluated_designs(designs, *args, **kwargs)

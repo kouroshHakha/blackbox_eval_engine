@@ -2,6 +2,7 @@ from typing import Optional, Dict, Any, Union, Sequence
 
 import abc
 import random
+import numpy as np
 
 from ..base import EvaluationEngineBase
 from bb_eval_engine.data.design import Design
@@ -66,22 +67,23 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             spec = self.spec_range[key]
             penalty = 0
             spec_max, spec_min, w = spec.ub, spec.lb, spec.weight
+
             if spec_max is not None:
-                if spec_num > spec_max:
-                    # if (spec_num + spec_max) != 0:
-                    penalty += w * abs((spec_num - spec_max) / (spec_num + spec_max + 1e-15))
-                    # else:
-                    #     penalty += 1000
-                    # penalty += w * abs(spec_num - spec_max) / abs(spec_num)
-                    # penalty += w * abs(spec_num - spec_max) / self.avg_specs[spec_kwrd]
+                if spec_num * spec_max > 0:
+                    penalty += w * max(0, (spec_num - spec_max) / np.abs(spec_num + spec_max))
+                else:
+                    penalty += w if spec_num > spec_max else 0
             elif spec_min is not None:
-                if spec_num < spec_min:
-                    # if (spec_num + spec_min) != 0:
-                    penalty += w * abs((spec_num - spec_min) / (spec_num + spec_min + 1e-15))
-                    # else:
-                    #     penalty += 1000
-                    # penalty += w * abs(spec_num - spec_min) / abs(spec_min)
-                    # penalty += w * abs(spec_num - spec_min) / self.avg_specs[spec_kwrd]
+                if spec_num * spec_min > 0:
+                    penalty += w * max(0, (spec_min - spec_num) / np.abs(spec_num + spec_min))
+                else:
+                    penalty += w if spec_num < spec_min else 0
+
+            if penalty > 1 or penalty < 0:
+                # sanity check
+                print(f'{key} penalty is messed up')
+                breakpoint()
+
             penalties.append(penalty)
         return penalties
 
@@ -132,11 +134,19 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
         """
         if design['valid']:
             cost = 0
+            weights = [spec.weight for spec in self.spec_range.values()]
             for spec_kwrd in self.spec_range:
                 cost += self.compute_penalty(design[spec_kwrd], spec_kwrd)[0]
+            cost = cost / sum(weights)
         else:
             # if not valid penalize with a huge cost
-            cost = 1000
+            cost = 1
+
+        if cost > 1 or cost < 0:
+            # sanity check
+            print(f'cost = {cost} for design = {design}')
+            breakpoint()
+
         design['cost'] = cost
 
     def plot_contours(self, ranges, ax=None, fpath='', show_fig=False):

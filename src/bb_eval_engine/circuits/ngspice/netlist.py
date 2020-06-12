@@ -18,8 +18,6 @@ from utils.file import read_yaml, write_yaml
 PathLike = Union[str, Path]
 StateValue = Union[float, int, str]
 
-debug = False
-
 
 @dataclass(eq=True)
 class Netlist:
@@ -80,7 +78,7 @@ class NgSpiceWrapper(abc.ABC):
             else:
                 current_cache = {}
             current_cache.update(self.cache)
-            print(f'Saving cache for {self.base_design_name} ....')
+            # print(f'Saving cache for {self.base_design_name} ....')
             write_yaml(self.cache_path, current_cache)
             # update last mtime stamp after updating cache file
             self.last_cache_mtime = os.stat(str(self.cache_path))[-1]
@@ -172,7 +170,7 @@ class NgSpiceWrapper(abc.ABC):
         return Netlist(fpath=fpath.resolve(), content=new_content)
 
     @staticmethod
-    def _simulate(netlist: Netlist) -> int:
+    def _simulate(netlist: Netlist, debug: bool = False) -> int:
         info = 0  # this means no error occurred
         command = ['ngspice', '-b', f'{netlist.fpath}']
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -190,19 +188,20 @@ class NgSpiceWrapper(abc.ABC):
         self.updated_cache = True
 
     def _create_design_and_simulate(self,
-                                    state: Dict[str, StateValue],
-                                    verbose: bool = False) -> Tuple[Mapping[str, StateValue],
-                                                                    Mapping[str, StateValue], int]:
+                                    state: Mapping[str, StateValue],
+                                    verbose: bool = False,
+                                    debug: bool = False) -> Tuple[Mapping[str, StateValue],
+                                                                  Mapping[str, StateValue], int]:
 
-        if debug:
+        if debug and verbose:
             print('state', state)
-            print('verbose', verbose)
 
         netlist = self._create_design(state, dsn_id=state['id'])
         loaded = False
         if netlist not in self.cache:
-            print(f'Simulating design {state["id"]} ...')
-            info = self._simulate(netlist)
+            if verbose:
+                print(f'Simulating design {state["id"]} ...')
+            info = self._simulate(netlist, debug=debug and verbose)
             if not info:
                 # simulation succeeded and not it cache
                 results = self.parse_output(state)
@@ -211,7 +210,8 @@ class NgSpiceWrapper(abc.ABC):
                 self.save_as_hdf5(results, hdf5_file)
                 self._update_cache(netlist, hdf5_file)
         else:
-            print(f'Skipped simulation. Loaded results from {netlist.fpath.parent}.')
+            if verbose:
+                print(f'Skipped simulation. Loaded results from {netlist.fpath.parent}.')
             info = 0
             loaded = True
 
@@ -233,15 +233,18 @@ class NgSpiceWrapper(abc.ABC):
         return state, specs, info
 
     def run(self, states: Sequence[Mapping[str, StateValue]],
-            verbose: bool = False) -> Sequence[Tuple[Mapping[str, StateValue],
-                                                     Mapping[str, StateValue], int]]:
+            verbose: bool = False, debug: bool = False) -> Sequence[Tuple[Mapping[str, StateValue],
+                                                                          Mapping[str, StateValue], int]]:
         """
         This method runs simulations for a batch of input states in parallel.
         """
-        pool = ThreadPool(processes=self.num_process)
-        arg_list = [(state, verbose) for state in states]
-        specs = pool.starmap(self._create_design_and_simulate, arg_list)
-        pool.close()
+        if debug:
+            specs = [self._create_design_and_simulate(state, verbose, debug) for state in states]
+        else:
+            pool = ThreadPool(processes=self.num_process)
+            arg_list = [(state, verbose) for state in states]
+            specs = pool.starmap(self._create_design_and_simulate, arg_list)
+            pool.close()
 
         return specs
 
