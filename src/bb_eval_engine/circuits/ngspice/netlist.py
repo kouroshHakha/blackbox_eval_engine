@@ -57,7 +57,7 @@ class NgSpiceWrapper(abc.ABC):
         self.cache: Dict[str, Tuple[int, str]]
         self.updated_cache = False
         if self.cache_path.exists():
-            self.cache = read_yaml(self.cache_path)
+            self.cache = read_yaml(self.cache_path) or {}
             stat = os.stat(str(self.cache_path))
             self.last_cache_mtime = stat[-1]
         else:
