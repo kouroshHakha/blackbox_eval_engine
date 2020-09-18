@@ -73,6 +73,8 @@ class NgSpiceWrapper(abc.ABC):
                 stat = os.stat(str(self.cache_path))
                 if self.last_cache_mtime < stat[-1]:
                     current_cache = read_yaml(self.cache_path)
+                    if current_cache is None:
+                        current_cache = {}
                 else:
                     current_cache = {}
             else:
