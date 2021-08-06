@@ -52,6 +52,8 @@ class DesignVar:
 
 class EvaluationEngineBase(abc.ABC):
 
+    env = None
+
     def __init__(self, yaml_fname: Optional[str] = None,
                  specs: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         if yaml_fname:
