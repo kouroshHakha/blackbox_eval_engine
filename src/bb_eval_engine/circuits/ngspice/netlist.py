@@ -12,6 +12,10 @@ import atexit
 import h5py
 from numbers import Number
 import subprocess
+import json
+from ruamel.yaml import YAML
+yaml = YAML(typ='safe')
+
 
 from utils.file import read_yaml, write_yaml
 
@@ -19,10 +23,15 @@ PathLike = Union[str, Path]
 StateValue = Union[float, int, str]
 
 
+@yaml.register_class
 @dataclass(eq=True)
 class Netlist:
-    fpath: Path
+    _fpath: str
     content: str
+
+    @property
+    def fpath(self):
+        return Path(self._fpath)
 
     def __hash__(self):
         return hash(self.content)
@@ -30,15 +39,14 @@ class Netlist:
 
 class NgSpiceWrapper(abc.ABC):
 
-    try:
-        BASE_TMP_DIR = os.environ['NGSPICE_TMP_DIR']
-    except KeyError:
-        raise ValueError("Environment variable NGSPICE_TMP_DIR is not set.")
+    BASE_TMP_DIR = os.environ.get('NGSPICE_TMP_DIR', None)
 
     def __init__(self, num_process: int, design_netlist: PathLike,
                  root_dir: PathLike = None) -> None:
 
         if root_dir is None:
+            if NgSpiceWrapper.BASE_TMP_DIR is None:
+                raise ValueError('Environment variable NGSPICE_TMP_DIR is not set.')
             self.root_dir: Path = Path(NgSpiceWrapper.BASE_TMP_DIR).resolve()
         else:
             self.root_dir: Path = Path(root_dir).resolve()
@@ -169,7 +177,7 @@ class NgSpiceWrapper(abc.ABC):
             with open(str(fpath), 'w') as f:
                 f.write(new_content)
 
-        return Netlist(fpath=fpath.resolve(), content=new_content)
+        return Netlist(str(fpath.resolve()), new_content)
 
     @staticmethod
     def _simulate(netlist: Netlist, debug: bool = False) -> int:
@@ -200,6 +208,7 @@ class NgSpiceWrapper(abc.ABC):
 
         netlist = self._create_design(state, dsn_id=state['id'])
         loaded = False
+
         if netlist not in self.cache:
             if verbose:
                 print(f'Simulating design {state["id"]} ...')
@@ -208,9 +217,12 @@ class NgSpiceWrapper(abc.ABC):
                 # simulation succeeded and not it cache
                 results = self.parse_output(state)
                 dsn_folder = self.get_design_folder(state['id'])
+                with open(dsn_folder / 'params.json', 'w') as f:
+                    json.dump(state, f)
                 hdf5_file: Path = self.create_new_name(dsn_folder)
                 self.save_as_hdf5(results, hdf5_file)
                 self._update_cache(netlist, hdf5_file)
+                print(f'saved results in {hdf5_file}')
         else:
             if verbose:
                 print(f'Skipped simulation. Loaded results from {netlist.fpath.parent}.')

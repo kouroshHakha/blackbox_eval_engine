@@ -137,7 +137,8 @@ class CircuitsEngineBase(EvaluationEngineBase, abc.ABC):
             weights = [spec.weight for spec in self.spec_range.values()]
             for spec_kwrd in self.spec_range:
                 cost += self.compute_penalty(design[spec_kwrd], spec_kwrd)[0]
-            cost = cost / sum(weights)
+            if weights:
+                cost = cost / sum(weights)
         else:
             # if not valid penalize with a huge cost
             cost = 1

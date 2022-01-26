@@ -236,7 +236,7 @@ class EvaluationEngineBase(abc.ABC):
         Default behaviour: lookup the params_vec and replace the index with the actual value.
         """
         for param_idx, key in zip(design, self.params_vec.keys()):
-            design.value_dict[key] = self.params_vec[key][param_idx]
+            design.value_dict[key] = self.params_vec[key][param_idx].item()
 
     @abc.abstractmethod
     def _get_evaluated_designs(self, designs: Sequence[Design], *args, **kwargs) -> Any:
