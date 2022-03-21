@@ -27,15 +27,15 @@ class EvaluationEngineBase(abc.ABC):
 
         self.params_vec: Dict[str, np.ndarray] = cast(Dict[str, np.ndarray], {})
         self.params = self.specs['params']
-        self.params_min = [0]*len(self.params_vec)
-        self.params_max = []
-        for val in self.params_vec.values():
-            self.params_max.append(len(val)-1)
         self.search_space_size = 1
         for key, value in self.specs['params'].items():
             listed_value = np.arange(value[0], value[1], value[2])
             self.params_vec[key] = listed_value
             self.search_space_size = self.search_space_size * len(listed_value)
+        self.params_min = [0]*len(self.params_vec)
+        self.params_max = []
+        for val in self.params_vec.values():
+            self.params_max.append(len(val)-1)
 
         self.id_encoder = IntIDEncoder(self.params_vec)
 
